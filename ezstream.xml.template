@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  EXAMPLE: A valid configuration that contains every configuration option
+
+  NB: /ezstream/metadata/program is commented out so that this configuration
+      can work without scripting.
+  -->
+
+<!-- Ezstream configuration root element -->
+<ezstream>
+
+  <!--
+    Server configuration
+    -->
+  <servers>
+    <server>
+      <!-- Identifying name (default: "default") -->
+      <name>SJM NOAA Server</name>
+
+      <!--
+        Transport protocol:
+        HTTP (default), HTTPS (implies <tls>required</tls>), ICY, RoarAudio
+        -->
+      <protocol>HTTP</protocol>
+      <!-- Server address -->
+      <hostname>127.0.0.1</hostname>
+      <!-- Server port (default: 8000) -->
+      <port>8000</port>
+
+      <!-- Login user (default: "source") -->
+      <user>source</user>
+      <!-- Login password (check file permissions, or everyone can see this) -->
+      <password>PASSWORD_PLACEHOLDER</password>
+
+      <!--
+        Configure TLS requirement: none, may, required (default: "may")
+
+        For compatibility reasons, the default configuration and this example
+        is "may". THIS IS INSECURE. It allows a MitM to intercept the
+        password and tamper with the stream. It is recommended to set this to
+        "required" when configuring TLS to secure streaming over untrusted
+        networks.
+        -->
+      <tls>May</tls>
+
+      <!--
+        Configure allowed cipher suites for TLS other than the libshout
+        default.
+        See openssl(1)/ciphers(1) for details.
+        -->
+      <tls_cipher_suite>HIGH:!RSA:!SHA:!DH:!aNULL:!eNULL:!TLSv1</tls_cipher_suite>
+
+      <!--
+        Directory to use for server certificate verification in "hash format".
+        See openssl(1)/verify(1) for details.
+
+        One of the <ca_dir /> or <ca_file /> settings must be enabled for
+        certificate verification to succeed.
+        -->
+      <!-- <ca_dir>/etc/ssl/certs</ca_dir> -->
+
+      <!--
+        CA bundle for both server certificate verification and building the
+        client certificate chain.
+
+        One of the <ca_dir /> or <ca_file /> settings must be enabled for
+        certificate verification to succeed.
+        -->
+      <!-- <ca_file>/etc/ssl/certs/ca-certificates.crt</ca_file> -->
+
+      <!--
+        X.503 client certificate, in PEM format, containing both certificate
+        (with public key) and private key in the same file, for
+        authentication.
+        -->
+      <!-- <client_cert>/etc/ssl/private/ezstream.crt</client_cert> -->
+
+      <!-- Number of reconnection attempts, before giving up (default: 0) -->
+      <reconnect_attempts>20</reconnect_attempts>
+    </server>
+  </servers>
+
+  <!--
+    Stream configuration
+    -->
+  <streams>
+    <stream>
+      <!--
+        Identifying name (default: "default")
+
+        NB: Only the "default" stream is supported at this point.
+        -->
+      <!-- <name>default</name> -->
+
+      <!-- Mount point on server -->
+      <mountpoint>/noaa</mountpoint>
+
+      <!-- Name of the intake entry to use (default: "default") -->
+      <intake>SJM Input</intake>
+
+      <!-- Name of the server entry to use (default: "default") -->
+      <server>SJM NOAA Server</server>
+
+      <!--
+        Setting to allow stream to be listed in public YP directory
+        (default: no)
+        -->
+      <public>No</public>
+
+      <!-- Stream format: Ogg, MP3, WebM, Matroska -->
+      <format>MP3</format>
+      <encoder>Lame-CBR128</encoder>
+
+      <!-- Encoder name (defined below) to use for (re)encoding -->
+      <!-- <encoder>OggEnc-Q1.5</encoder> -->
+
+      <!-- Various other informational settings -->
+      <stream_name>SJM NOAA Discussion Stream</stream_name>
+      <stream_url>http://noaa-ct:8000/noaa</stream_url>
+      <stream_genre>Weather</stream_genre>
+      <stream_description>Weather</stream_description>
+      <stream_quality>1.5</stream_quality>
+      <stream_bitrate>16</stream_bitrate>
+      <stream_samplerate>44100</stream_samplerate>
+      <stream_channels>2</stream_channels>
+    </stream>
+  </streams>
+
+  <!--
+    Intake configuration
+    -->
+  <intakes>
+    <intake>
+      <!-- Identifying name (default: "default") -->
+      <name>SJM Input</name>
+
+      <!--
+        Media type: autodetect, file, playlist, program, stdin
+       (default: autodetect)
+        -->
+      <type>playlist</type>
+
+      <!-- Input file, program name, or "stdin" keyword (deprecated) -->
+      <filename>list.m3u</filename>
+
+      <!-- Setting to shuffle playlists -->
+      <shuffle>No</shuffle>
+
+      <!-- Setting whether to stream intake indefinitely or only once -->
+      <stream_once>No</stream_once>
+    </intake>
+  </intakes>
+
+  <!--
+    Metadata configuration
+    -->
+  <metadata>
+    <!-- Program to query for metadata instead of from media files -->
+    <!-- <program>meta.sh</program> -->
+
+    <!-- Metadata format -->
+    <format_str>@a@ - @t@</format_str>
+
+    <!-- Interval for additional metadata refreshes (default: -1 (none)) -->
+    <refresh_interval>-1</refresh_interval>
+
+    <!-- Setting to clean up extraneous whitespace (default: no) -->
+    <normalize_strings>Yes</normalize_strings>
+
+    <!-- Setting to suppress all metadata udpates (default: no) -->
+    <no_updates>Yes</no_updates>
+  </metadata>
+
+  <!--
+    Decoder configurations
+    -->
+  <decoders>
+    <decoder>
+      <!-- Decoder name -->
+      <name>OggDec</name>
+      <!-- Program and options -->
+      <program>oggdec -R -b 16 -e 1 -s 1 -o - @T@</program>
+      <!-- File extensions to use this decoder for -->
+      <file_ext>.ogg</file_ext>
+      <file_ext>.oga</file_ext>
+    </decoder>
+
+    <decoder>
+      <name>MadPlay</name>
+      <program>madplay -b 16 -R 44100 -S -o raw:- @T@</program>
+      <file_ext>.mp3</file_ext>
+    </decoder>
+
+    <decoder>
+      <name>Flac</name>
+      <program>flac -s -d --force-raw-format --sign=signed --endian=little -o - @T@</program>
+      <file_ext>.flac</file_ext>
+    </decoder>
+
+    <decoder>
+      <name>AAC</name>
+      <program>faad -d -f 2 -w @T@</program>
+      <file_ext>.m4a</file_ext>
+    </decoder>
+  </decoders>
+
+  <!--
+    Encoder configurations
+    -->
+  <encoders>
+    <encoder>
+      <!-- Encoder name -->
+      <name>OggEnc-Q1.5</name>
+      <!-- Output stream format -->
+      <format>Ogg</format>
+      <!-- Program and options -->
+      <program>oggenc -r -B 16 -C 2 -R 44100 --raw-endianness 0 -q 1.5 -t @M@ -</program>
+    </encoder>
+
+    <encoder>
+      <name>Opus-VBR96</name>
+      <format>Ogg</format>
+      <program>opusenc --vbr --bitrate 96 --title @t@ --artist @a@ --raw --raw-rate 44100 - -</program>
+    </encoder>
+
+    <encoder>
+      <name>Lame-CBR128</name>
+      <format>MP3</format>
+      <program>lame --preset cbr 128 -r -s 44.1 --bitwidth 16 - -</program>
+    </encoder>
+  </encoders>
+
+</ezstream>

@@ -1,0 +1,11 @@
+# Local environment overrides for noaa_stream
+# DO NOT commit this file to version control. Contains secrets.
+
+# Top-level folder for the stream files (optional)
+NOAA_HOME=/home/scott/noaa_stream
+
+# NOAA AFD product URL (optional; will default to BTV AFD if unset)
+NOAA_AFD_URL=https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&product=AFD&format=CI&version=1&glossary=1&highlight=off
+
+# ezstream source password (REPLACE with your real password)
+EZSTREAM_PASSWORD=changeme

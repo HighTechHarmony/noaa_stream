@@ -33,7 +33,7 @@ my $ua = WWW::Curl::UserAgent->new(
 );
  
 $ua->add_request(
-    request    => HTTP::Request->new( GET => 'https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&product=AFD&format=CI&version=1&glossary=1&highlight=off' ),
+	request    => HTTP::Request->new( GET => ($ENV{NOAA_AFD_URL} || 'https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&product=AFD&format=CI&version=1&glossary=1&highlight=off') ),
     on_success => sub {
         my ( $request, $response ) = @_;
         if ($response->is_success) {
