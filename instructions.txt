@@ -1,0 +1,6 @@
+2/8/2019
+
+Set icecast password in ezstream.xml
+Set home variable in tts_noaa.pl and speak.sh
+You need to add tts_noaa.pl and speak.sh into crontab. Should fire about 6am 12pm and 8pm
+You need to start the stream by running stream.sh

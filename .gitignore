@@ -1,0 +1,16 @@
+ezstream.xml
+old_attempts/
+*.old
+*.bak
+synopsis.txt
+near_term.txt
+long_term.txt
+*.cache
+*.wav
+temp
+nohup.out
+long_term.mp3
+near_term.mp3
+short_term.mp3
+
+
