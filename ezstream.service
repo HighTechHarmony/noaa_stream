@@ -7,7 +7,9 @@ Type=simple
 Restart=always
 RestartSec=1
 User=root
-ExecStart=/usr/bin/ezstream -c /home/scott/sjm_noaa_stream/ezstream.xml
+EnvironmentFile=/home/scott/noaa_stream/.env
+WorkingDirectory=/home/scott/noaa_stream
+ExecStart=/usr/bin/ezstream -c ${NOAA_HOME}/ezstream.xml
 
 [Install]
 WantedBy=multi-user.target

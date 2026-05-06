@@ -3,8 +3,28 @@
 use HTTP::Request;
 use WWW::Curl::UserAgent;
 use File::Copy qw(copy);
+use FindBin;
 
-$home_path="/home/scott/sjm_noaa_stream";
+# Load environment file (if NOAA_HOME not set in environment)
+my $envfile = "$FindBin::Bin/.env";
+if (!defined $ENV{NOAA_HOME} && -r $envfile) {
+	if (open my $efh, '<', $envfile) {
+		while (<$efh>) {
+			chomp;
+			next if $_ =~ /^\s*#/;
+			next unless $_ =~ /=/;
+			my ($k,$v) = split(/=/, $_, 2);
+			$k =~ s/^\s+|\s+$//g;
+			$v =~ s/^\s+|\s+$//g;
+			$v =~ s/^"//; $v =~ s/"$//;
+			$ENV{$k} = $v if defined $k && defined $v;
+		}
+		close $efh;
+	}
+}
+
+# Prefer explicit environment variable, otherwise fall back to script dir
+my $home_path = $ENV{NOAA_HOME} || $FindBin::Bin;
 
 my $ua = WWW::Curl::UserAgent->new(
     timeout         => 10000,
@@ -64,10 +84,30 @@ $ua->add_request(
 		}
 
 		my %abbrev = load_abbreviations("$home_path/abbreviations.csv");
+		# Diagnostic: ensure common keys loaded
+		warn "Abbrev 'wed' present\n" if exists $abbrev{lc 'Wed'};
+
+		# Replacement that is case-insensitive but preserves capitalization
+		sub _preserve_case {
+			my ($orig, $replacement) = @_;
+			return uc($replacement)   if $orig =~ /^\p{Lu}+$/;
+			return lc($replacement)   if $orig =~ /^\p{Ll}+$/;
+			return ucfirst(lc($replacement)) if $orig =~ /^\p{Lu}\p{Ll}+$/;
+			return $replacement;
+		}
+
 		for my $k (sort { length $b <=> length $a } keys %abbrev) {
 			my $v = $abbrev{$k};
-			my $re = qr/\b\Q$k\E\b/i;
-			$response_text =~ s/$re/$v/g;
+			my $re = qr/(\b\Q$k\E\b)/i;
+			my $count = 0;
+			$response_text =~ s/$re/ do { $count++; _preserve_case($1, $v) } /ge;
+			warn "Replaced $count occurrences of '$k'\n" if $count;
+			# Also apply abbreviation replacements to the extracted product date
+			if (defined $product_date) {
+				my $count_pd = 0;
+				$product_date =~ s/$re/ do { $count_pd++; _preserve_case($1, $v) } /ge;
+				warn "Replaced $count_pd occurrences of '$k' in product_date\n" if $count_pd;
+			}
 		}
 
 		# Keep a few fixed replacements helpful to TTS

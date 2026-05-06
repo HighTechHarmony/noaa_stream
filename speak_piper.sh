@@ -1,6 +1,12 @@
 #!/bin/sh
 
-NOAA_HOME="/home/scott/sjm_noaa_stream"
+# Load .env from script directory and ensure NOAA_HOME is set
+DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$DIR/.env" ]; then
+	# shellcheck disable=SC1090
+	. "$DIR/.env"
+fi
+NOAA_HOME=${NOAA_HOME:-"$DIR"}
 
 #PIPER_MODEL="/usr/local/share/piper/models/en_US-danny-low.onnx"
 PIPER_MODEL="/usr/local/share/piper/models/en_US-amy-medium.onnx"

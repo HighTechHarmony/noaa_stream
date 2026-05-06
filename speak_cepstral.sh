@@ -1,8 +1,13 @@
 #!/bin/sh
 
-#set -e
+# Load .env from script directory and ensure NOAA_HOME is set
+DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$DIR/.env" ]; then
+	# shellcheck disable=SC1090
+	. "$DIR/.env"
+fi
+NOAA_HOME=${NOAA_HOME:-"$DIR"}
 
-NOAA_HOME="/home/scott/sjm_noaa_stream"
 SWIFT_HOME="/opt/swift"
 LD_LIBRARY_PATH="/opt/swift/lib"
 SWIFT_BIN="/opt/swift/bin"
