@@ -2,8 +2,13 @@
 # Generate ezstream.xml from template by substituting PASSWORD_PLACEHOLDER
 # Requires environment variable EZSTREAM_PASSWORD to be set.
 
-TEMPLATE="$(dirname "$0")/ezstream.xml.template"
-OUT="$(dirname "$0")/ezstream.xml"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$SCRIPT_DIR"
+if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then
+  PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+TEMPLATE="$PROJECT_ROOT/ezstream.xml.template"
+OUT="$PROJECT_ROOT/ezstream.xml"
 
 if [ -z "$EZSTREAM_PASSWORD" ]; then
   echo "ERROR: EZSTREAM_PASSWORD not set. Set it in the environment or in .env" >&2

@@ -1,8 +1,8 @@
-beep_a.mp3
-synopsis.mp3
-beep_b.mp3
-near_term.mp3
-beep_b.mp3
-short_term.mp3
-beep_b.mp3
-long_term.mp3
+assets/audio/beep_a.mp3
+forecasts/audio/synopsis.mp3
+assets/audio/beep_b.mp3
+forecasts/audio/near_term.mp3
+assets/audio/beep_b.mp3
+forecasts/audio/short_term.mp3
+assets/audio/beep_b.mp3
+forecasts/audio/long_term.mp3

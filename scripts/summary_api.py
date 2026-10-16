@@ -475,9 +475,11 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    script_dir = Path(__file__).resolve().parent
+    default_config = script_dir.parent / "config.toml" if script_dir.name == "scripts" else script_dir / "config.toml"
     parser.add_argument(
         "--config",
-        default=str(Path(__file__).with_name("config.toml")),
+        default=str(default_config),
         help="TOML config file (default: config.toml next to this script)",
     )
     args = parser.parse_args()

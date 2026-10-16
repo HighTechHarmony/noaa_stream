@@ -6,7 +6,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from summary_api import (
+from scripts.summary_api import (
     SECTIONS,
     InvalidSummary,
     Settings,

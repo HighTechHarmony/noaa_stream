@@ -12,6 +12,6 @@ max_concurrent_summaries = 2
 queue_timeout_seconds = 30
 
 [paths]
-forecast_dir = "."
+forecast_dir = "forecasts/text"
 source_max_bytes = 262144
 source_settle_seconds = 0.15

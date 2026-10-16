@@ -4,9 +4,12 @@ use HTTP::Request;
 use WWW::Curl::UserAgent;
 use File::Copy qw(copy);
 use FindBin;
+use File::Basename qw(basename dirname);
+use File::Path qw(make_path);
 
 # Load environment file (if NOAA_HOME not set in environment)
-my $envfile = "$FindBin::Bin/.env";
+my $project_path = basename($FindBin::Bin) eq 'scripts' ? dirname($FindBin::Bin) : $FindBin::Bin;
+my $envfile = "$project_path/.env";
 if (!defined $ENV{NOAA_HOME} && -r $envfile) {
 	if (open my $efh, '<', $envfile) {
 		while (<$efh>) {
@@ -24,7 +27,10 @@ if (!defined $ENV{NOAA_HOME} && -r $envfile) {
 }
 
 # Prefer explicit environment variable, otherwise fall back to script dir
-my $home_path = $ENV{NOAA_HOME} || $FindBin::Bin;
+my $home_path = $ENV{NOAA_HOME} || $project_path;
+my $forecast_text_dir = "$home_path/forecasts/text";
+my $cache_dir = "$home_path/cache";
+make_path($forecast_text_dir, $cache_dir);
 
 my $ua = WWW::Curl::UserAgent->new(
     timeout         => 10000,
@@ -129,9 +135,9 @@ $ua->add_request(
 #			print $synopsis;
 #			`/usr/local/bin/swift \"$synopsis\"`;
 			print "Updating synopsis cache\n";
-			copy "$home_path/synopsis.txt","$home_path/synopsis.cache";
+			copy "$forecast_text_dir/synopsis.txt", "$cache_dir/synopsis.cache";
 			print "Writing synopsis discussion\n";
-			open (LSOUT,">$home_path/synopsis.txt");	
+			open (LSOUT,">$forecast_text_dir/synopsis.txt");
 			print LSOUT $synopsis;
 			close (LSOUT);
 
@@ -146,7 +152,7 @@ $ua->add_request(
 #			print $near_term;
 #			`/usr/local/bin/swift \"$near_term\"`;
 			print "Writing near term discussion\n";
-			open (LSOUT,">$home_path/near_term.txt");	
+			open (LSOUT,">$forecast_text_dir/near_term.txt");
 			print LSOUT $near_term;
 			close (LSOUT);
 
@@ -160,7 +166,7 @@ $ua->add_request(
 #			print $short_term;
 #			`/usr/local/bin/swift \"$short_term\"`;
 			print "Writing short term discussion\n";
-			open (LSOUT,">$home_path/short_term.txt");	
+			open (LSOUT,">$forecast_text_dir/short_term.txt");
 			print LSOUT $short_term;
 			close (LSOUT);
 
@@ -173,7 +179,7 @@ $ua->add_request(
 			$long_term="Long Term for $product_date. ".$1;
 #			print $long_term;
 			print "Writing long term discussion\n";
-			open (LSOUT,">$home_path/long_term.txt");	
+			open (LSOUT,">$forecast_text_dir/long_term.txt");
 			print LSOUT $long_term;
 			close (LSOUT);
 		}
