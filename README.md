@@ -125,3 +125,69 @@ Notes:
 Extending
 ---------
 - If you need multiple server configurations or dynamic templating, replace `gen_ezstream.sh` with a more capable templating tool (envsubst, mustache, jinja2, etc.).
+
+Forecast Summary API
+--------------------
+The summary API is a separate Python service. It reads the existing forecast text files without changing them or invoking the scraper, TTS scripts, or stream service. It uses FastAPI served by Uvicorn and sends on-demand summary requests to the configured Ollama `/api/chat` endpoint.
+
+Install the API dependencies in an isolated virtual environment:
+
+```sh
+cd /home/scott/noaa_stream
+python3 -m venv .venv-summary
+.venv-summary/bin/pip install -r requirements-summary.txt
+```
+
+Set the Ollama URL and a model already installed on that server in `config.toml`. The service never downloads a model. Relative `paths.forecast_dir` values are resolved relative to `config.toml`; the default `.` reads the four forecast files beside it. The default API bind is `127.0.0.1:8765`.
+
+Run it in the foreground:
+
+```sh
+.venv-summary/bin/python summary_api.py --config config.toml
+```
+
+The default Ollama timeouts allow a sleeping host or wake-up proxy to respond: connection timeout 15 seconds, response timeout 240 seconds, and an overall generation deadline of 300 seconds. These can be raised in `config.toml` if wake-up and inference take longer. A cache hit for an unchanged forecast does not contact Ollama. A cache miss holds the requesting HTTP connection open while generation runs; clients and any reverse proxy must allow that duration. Network failures are not retried. Invalid model output gets one correction attempt within the same deadline.
+
+Endpoints:
+
+```text
+GET /healthz
+GET /api/v1/forecasts/synopsis
+GET /api/v1/forecasts/synopsis/message_summary
+GET /api/v1/forecasts/near_term
+GET /api/v1/forecasts/near_term/message_summary
+GET /api/v1/forecasts/short_term
+GET /api/v1/forecasts/short_term/message_summary
+GET /api/v1/forecasts/long_term
+GET /api/v1/forecasts/long_term/message_summary
+```
+
+The forecast URLs return the exact source file as `text/plain` and never call Ollama. The nested `message_summary` URLs return JSON with the validated MeshCore-sized summary and metadata.
+
+Examples:
+
+```sh
+curl http://127.0.0.1:8765/api/v1/forecasts/near_term
+curl http://127.0.0.1:8765/api/v1/forecasts/near_term/message_summary
+```
+
+The JSON `summary` field from `message_summary` is the MeshCore payload: printable ASCII, at most 133 characters including spaces and punctuation, and at most four sentences. The JSON metadata is not part of that payload. Overlong or invalid model output is rejected rather than truncated. Forecast summaries are not independently fact-checked; verify operationally important details against the NOAA source.
+
+The API caches valid output in memory while a section's source contents remain unchanged. Restarting the service clears that cache. It reads one section per request; the existing scraper writes files in place, so source stability checks are best-effort and do not make a four-file product update atomic. Source timestamps report filesystem modification time, not a freshness guarantee. Health checks report API/config process liveness and do not require Ollama to be awake.
+
+Expected errors include `404` for an unknown section or missing source, `502` for rejected or invalid Ollama output, `503` when Ollama/source/capacity is unavailable, and `504` when an Ollama timeout expires.
+
+Systemd deployment
+------------------
+The separate `summary-api.service` example runs as the unprivileged `scott` user and does not depend on or start the scraper, TTS, stream, or Ollama services. Adjust its user and paths if this checkout is installed elsewhere. Install and start it explicitly:
+
+```sh
+sudo install -m 0644 summary-api.service /etc/systemd/system/summary-api.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now summary-api.service
+sudo systemctl status summary-api.service
+```
+
+View logs with `sudo journalctl -u summary-api.service -f`. The unit is read-only and has a 256 MB memory limit; configuration and forecast files must be readable by the service user.
+
+For trusted LAN/VPN clients only, change `[api].host` to `0.0.0.0` (or the intended interface address), restart the summary service, and restrict the firewall to trusted clients. The API has no authentication or TLS; do not expose it directly to the public Internet. `/healthz` remains available while Ollama is asleep; a summary request waits only up to the configured deadlines.

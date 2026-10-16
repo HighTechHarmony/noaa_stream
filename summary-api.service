@@ -1,0 +1,24 @@
+[Unit]
+Description=NOAA Forecast Summary API
+After=network.target
+
+[Service]
+Type=simple
+User=scott
+Group=scott
+WorkingDirectory=/home/scott/noaa_stream
+ExecStart=/home/scott/noaa_stream/.venv-summary/bin/python /home/scott/noaa_stream/summary_api.py --config /home/scott/noaa_stream/config.toml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -4,6 +4,7 @@ old_attempts/
 *.old
 *.bak
 synopsis.txt
+short_term.txt
 near_term.txt
 long_term.txt
 *.cache
@@ -14,5 +15,5 @@ long_term.mp3
 near_term.mp3
 short_term.mp3
 *.mp3
-*.txt
 
+config.toml

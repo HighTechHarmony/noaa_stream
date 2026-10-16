@@ -1,0 +1,17 @@
+[ollama]
+url = "http://ollama:11434/"
+model = "deepseek-r1:8b"
+connect_timeout_seconds = 15
+read_timeout_seconds = 240
+generation_deadline_seconds = 300
+
+[api]
+host = "192.168.16.28"
+port = 8765
+max_concurrent_summaries = 2
+queue_timeout_seconds = 30
+
+[paths]
+forecast_dir = "."
+source_max_bytes = 262144
+source_settle_seconds = 0.15
