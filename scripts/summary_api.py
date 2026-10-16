@@ -28,9 +28,9 @@ except ModuleNotFoundError:  # Python 3.10
 
 
 SECTIONS = ("synopsis", "near_term", "short_term", "long_term")
-MAX_SUMMARY_CHARS = 133
+MAX_SENTENCE_CHARS = 133
 MAX_SUMMARY_SENTENCES = 4
-PROMPT_VERSION = "2026-10-16-1"
+PROMPT_VERSION = "2026-10-16-2"
 OLLAMA_SCHEMA = {
     "type": "object",
     "properties": {
@@ -205,7 +205,7 @@ def _iso_timestamp(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _normalize_and_validate(content: str) -> tuple[str, int]:
+def _normalize_and_validate(content: str) -> tuple[list[str], int]:
     try:
         result = json.loads(content)
     except (TypeError, json.JSONDecodeError) as error:
@@ -228,20 +228,13 @@ def _normalize_and_validate(content: str) -> tuple[str, int]:
                 raise InvalidSummary("Each summary sentence must end with punctuation")
             if not sentence.isascii() or any(ord(char) < 32 or ord(char) > 126 for char in sentence):
                 raise InvalidSummary("Summary must use printable ASCII characters only")
+            if len(sentence) > MAX_SENTENCE_CHARS:
+                raise InvalidSummary("A summary sentence exceeds 133 characters")
             normalized_sentences.append(sentence)
             if len(normalized_sentences) > MAX_SUMMARY_SENTENCES:
                 raise InvalidSummary("Summary must contain no more than four sentences")
 
-    selected_sentences: list[str] = []
-    for sentence in normalized_sentences:
-        candidate = " ".join((*selected_sentences, sentence))
-        if len(candidate) > MAX_SUMMARY_CHARS:
-            if not selected_sentences:
-                raise InvalidSummary("A summary sentence exceeds 133 characters")
-            break
-        selected_sentences.append(sentence)
-    summary = " ".join(selected_sentences)
-    return summary, len(selected_sentences)
+    return normalized_sentences, len(normalized_sentences)
 
 
 def _prompt(
@@ -253,8 +246,8 @@ def _prompt(
     guidance = (
         "Summarize this NOAA forecast for a MeshCore text message. Return only JSON matching "
         '{"sentences":["..."]}, with 1 to 4 short sentences. Prefer one sentence and aim for '
-        "100 characters or fewer; the joined text, including spaces and punctuation, must never "
-        "exceed 133 printable ASCII characters. "
+        "100 characters or fewer; each sentence, including punctuation, must be at most 133 "
+        "printable ASCII characters. The four sentence elements may total up to 532 characters. "
         "Preserve the most important hazards, timing, uncertainty, and numeric values/units. "
         "Order sentences from most to least important. Omit verbose product headers. Do not add "
         "facts. Spell out abbreviations and use ASCII "
@@ -263,8 +256,8 @@ def _prompt(
     )
     if correction:
         guidance += (
-            f" The previous draft failed validation ({correction}). Rewrite it as one concise "
-            "sentence of at most 110 characters, preserving only the most important forecast "
+            f" The previous draft failed validation ({correction}). Rewrite it as 1 to 4 concise "
+            "sentences, each at most 133 characters, preserving the most important forecast "
             "information. Return the required JSON only."
         )
         if previous_draft:
@@ -404,7 +397,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         asyncio.get_running_loop().time() + settings.generation_deadline_seconds
                     )
                 try:
-                    summary, sentence_count = await _request_summary(
+                    sentences, sentence_count = await _request_summary(
                         app.state.client, settings, section, source, generation_deadline
                     )
                     _, current_hash, current_modified = await asyncio.to_thread(
@@ -455,8 +448,9 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
                 value = {
                     "section": section,
-                    "summary": summary,
-                    "character_count": len(summary),
+                    "sentences": sentences,
+                    "summary": " ".join(sentences),
+                    "character_count": sum(map(len, sentences)),
                     "sentence_count": sentence_count,
                     "source_sha256": source_hash,
                     "source_modified_at": current_modified or modified_at,

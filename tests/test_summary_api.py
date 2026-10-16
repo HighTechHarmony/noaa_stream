@@ -63,8 +63,9 @@ def test_each_forecast_section_is_available_and_within_limits(tmp_path):
             assert response.status_code == 200
             body = response.json()
             assert body["section"] == section
+            assert body["sentences"] == ["Rain is likely this afternoon."]
             assert body["summary"] == "Rain is likely this afternoon."
-            assert body["character_count"] == len(body["summary"]) <= 133
+            assert body["character_count"] == sum(map(len, body["sentences"]))
             assert body["sentence_count"] == 1
             assert body["cached"] is False
     assert len(requests) == 4
@@ -128,30 +129,39 @@ def test_empty_and_invalid_encoding_sources_are_rejected(tmp_path):
 
 
 def test_summary_validation_accepts_exactly_133_and_rejects_134_chars():
-    summary, count = _normalize_and_validate(json.dumps({"sentences": ["A" * 132 + "."]}))
-    assert len(summary) == 133
+    sentences, count = _normalize_and_validate(json.dumps({"sentences": ["A" * 132 + "."]}))
+    assert len(sentences[0]) == 133
     assert count == 1
     with pytest.raises(InvalidSummary, match="133"):
         _normalize_and_validate(json.dumps({"sentences": ["A" * 133 + "."]}))
 
 
+def test_four_sentences_can_each_use_the_full_133_character_limit():
+    sentence = "A" * 132 + "."
+    sentences, count = _normalize_and_validate(json.dumps({"sentences": [sentence] * 4}))
+    assert sentences == [sentence] * 4
+    assert sum(map(len, sentences)) == 532
+    assert count == 4
+
+
 def test_summary_validation_splits_sentences_grouped_in_one_array_item():
-    summary, count = _normalize_and_validate(
+    sentences, count = _normalize_and_validate(
         json.dumps({"sentences": ["Rain is likely today. Winds increase tonight."]})
     )
-    assert summary == "Rain is likely today. Winds increase tonight."
+    assert sentences == ["Rain is likely today.", "Winds increase tonight."]
     assert count == 2
 
 
-def test_summary_validation_keeps_complete_high_priority_sentences_that_fit():
+def test_summary_validation_keeps_sentences_even_when_joined_text_exceeds_133_chars():
     first = "A" * 69 + "."
     second = "B" * 61 + "."
-    summary, count = _normalize_and_validate(
-        json.dumps({"sentences": [f"{first} {second} C."]})
+    third = "C."
+    sentences, count = _normalize_and_validate(
+        json.dumps({"sentences": [f"{first} {second} {third}"]})
     )
-    assert summary == f"{first} {second}"
-    assert len(summary) == 133
-    assert count == 2
+    assert sentences == [first, second, third]
+    assert len(" ".join(sentences)) > 133
+    assert count == 3
 
 
 @pytest.mark.parametrize(
