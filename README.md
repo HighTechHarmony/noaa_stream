@@ -31,7 +31,7 @@ The following Cron example illustrates how the system can keep the forecast text
 Do this as part of the coordinated migration, after the new forecast folders are populated and the scripts are in place. Do not leave both old and new entries enabled, or a forecast could be processed twice. The historical Cepstral example, if enabled, should use `/home/scott/noaa_stream/scripts/speak_cepstral.sh`.
 Dependencies
 ------------
-- Perl (with modules: HTTP::Request, WWW::Curl::UserAgent, File::Copy, FindBin)
+- Perl (with modules: HTTP::Request, WWW::Curl::UserAgent, File::Copy, FindBin, TOML::Tiny; install TOML::Tiny with `cpan TOML::Tiny`)
 - ezstream (the ezstream binary)
 - awk (standard on Unix)
  - A local Text-to-Speech engine (recommended: piper) for generating audio files from the discussion text
@@ -39,18 +39,16 @@ Dependencies
 
 Configuration
 -------------
-This project uses environment variables for configuration and supports a `.env` file at the project root. `scripts/tts_noaa.pl` loads that file when `NOAA_HOME` is not already set.
+This project stores the NOAA AFD URL and summary API settings in `config.toml`. Environment variables and a `.env` file at the project root are used for local paths and stream credentials. `scripts/tts_noaa.pl` loads `.env` when `NOAA_HOME` is not already set.
 
 Important environment variables
  - `NOAA_HOME` — optional; override the project root used for files. Defaults to the repository root, including when scripts run from `scripts/`.
-- `NOAA_AFD_URL` — optional; URL to fetch the AFD product. Defaults to the BTV AFD URL used previously.
 - `EZSTREAM_PASSWORD` — REQUIRED to generate `ezstream.xml` from the template. Do NOT commit the real password into the repo; place it in a local `.env` or export it in the environment.
 
 Recommended .env (example)
 --------------------------
 Place a file named `.env` in the repository directory (do not commit with secrets) with lines like:
 
-NOAA_AFD_URL=https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&product=AFD&format=CI&version=1&glossary=1&highlight=off
 EZSTREAM_PASSWORD=your_real_ezstream_password_here
 
 Usage
@@ -153,7 +151,7 @@ python3 -m venv .venv-summary
 .venv-summary/bin/pip install -r requirements-summary.txt
 ```
 
-Set the Ollama URL and a model already installed on that server in `config.toml`. The service never downloads a model. Relative `paths.forecast_dir` values are resolved relative to `config.toml`; the configured value is `forecasts/text`. The API address and port are also configured there.
+Set `[noaa].afd_url` to the AFD product URL in `config.toml`. Set the Ollama URL and a model already installed on that server there as well. The service never downloads a model. Relative `paths.forecast_dir` values are resolved relative to `config.toml`; the configured value is `forecasts/text`. The API address and port are also configured there.
 
 Run it in the foreground:
 

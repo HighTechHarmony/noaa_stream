@@ -6,6 +6,8 @@ use File::Copy qw(copy);
 use FindBin;
 use File::Basename qw(basename dirname);
 use File::Path qw(make_path);
+use lib $FindBin::Bin;
+use ForecastSections qw(extract_key_messages map_forecast_sections);
 
 # Load environment file (if NOAA_HOME not set in environment)
 my $project_path = basename($FindBin::Bin) eq 'scripts' ? dirname($FindBin::Bin) : $FindBin::Bin;
@@ -32,6 +34,17 @@ my $forecast_text_dir = "$home_path/forecasts/text";
 my $cache_dir = "$home_path/cache";
 make_path($forecast_text_dir, $cache_dir);
 
+eval { require TOML::Tiny; 1 } or die "TOML::Tiny is required to read config.toml: $@";
+my $config_path = "$project_path/config.toml";
+open my $config_fh, '<', $config_path or die "Cannot read $config_path: $!\n";
+my $config_text = do { local $/; <$config_fh> };
+close $config_fh;
+my $config = eval { TOML::Tiny::from_toml($config_text) };
+die "Cannot parse $config_path: $@" if $@ || ref $config ne 'HASH';
+my $afd_url = ref $config->{noaa} eq 'HASH' ? $config->{noaa}{afd_url} : undef;
+die "noaa.afd_url in $config_path must be an HTTP(S) URL\n"
+	unless defined $afd_url && $afd_url =~ m{\Ahttps?://[^\s/?#]+(?:[/?#][^\s]*)?\z}i;
+
 my $ua = WWW::Curl::UserAgent->new(
     timeout         => 10000,
     connect_timeout => 1000,
@@ -39,7 +52,7 @@ my $ua = WWW::Curl::UserAgent->new(
 );
  
 $ua->add_request(
-	request    => HTTP::Request->new( GET => ($ENV{NOAA_AFD_URL} || 'https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&product=AFD&format=CI&version=1&glossary=1&highlight=off') ),
+	request    => HTTP::Request->new( GET => $afd_url ),
     on_success => sub {
         my ( $request, $response ) = @_;
         if ($response->is_success) {
@@ -130,60 +143,27 @@ $ua->add_request(
 #		print $response_text;
 #die;
 
-		if ($response_text=~/KEY\ MESSAGES\.\.\.(.*?)\&\&/s) {
-			$synopsis="Synopsis for $product_date. ".$1;
-#			print $synopsis;
-#			`/usr/local/bin/swift \"$synopsis\"`;
-			print "Updating synopsis cache\n";
-			copy "$forecast_text_dir/synopsis.txt", "$cache_dir/synopsis.cache";
-			print "Writing synopsis discussion\n";
-			open (LSOUT,">$forecast_text_dir/synopsis.txt");
-			print LSOUT $synopsis;
-			close (LSOUT);
+		my $messages = extract_key_messages($response_text);
+		my $sections = map_forecast_sections($messages);
+		die "Unable to find numbered KEY MESSAGE sections\n" unless keys %$sections;
 
+		print "Updating synopsis cache\n";
+		copy "$forecast_text_dir/synopsis.txt", "$cache_dir/synopsis.cache";
+
+		my %section_labels = (
+			synopsis   => 'Synopsis',
+			near_term  => 'Near Term',
+			short_term => 'Short Term',
+			long_term  => 'Long Term',
+		);
+		for my $section (qw(synopsis near_term short_term long_term)) {
+			my $text = "$section_labels{$section} for $product_date. $sections->{$section}";
+			my $path = "$forecast_text_dir/$section.txt";
+			print "Writing $section discussion\n";
+			open my $output, '>', $path or die "Cannot write $path: $!\n";
+			print {$output} $text;
+			close $output or die "Cannot close $path: $!\n";
 		}
-		else {print "Unable to find KEY MESSAGES (Synopsis)\n";}
-
-
-
-
-		if ($response_text=~/DISCUSSION\.\.\.(.*?)KEY\ MESSAGE\ 2/s) {
-			$near_term="Near Term for $product_date. ".$1;
-#			print $near_term;
-#			`/usr/local/bin/swift \"$near_term\"`;
-			print "Writing near term discussion\n";
-			open (LSOUT,">$forecast_text_dir/near_term.txt");
-			print LSOUT $near_term;
-			close (LSOUT);
-
-		}
-		else {print "Unable to find KEY MESSAGE 1 (Near Term)\n";}
-
-
-
-		if ($response_text=~/KEY MESSAGE 2.(.*?)KEY MESSAGE 3/s) {
-			$short_term="Short Term for $product_date. ".$1;
-#			print $short_term;
-#			`/usr/local/bin/swift \"$short_term\"`;
-			print "Writing short term discussion\n";
-			open (LSOUT,">$forecast_text_dir/short_term.txt");
-			print LSOUT $short_term;
-			close (LSOUT);
-
-		}
-		else {print "Unable to find KEY MESSAGE 2 (SHORT TERM)\n";}
-
-
-
-		if ($response_text=~/KEY MESSAGE 3.(.*?)\&\&/s) {
-			$long_term="Long Term for $product_date. ".$1;
-#			print $long_term;
-			print "Writing long term discussion\n";
-			open (LSOUT,">$forecast_text_dir/long_term.txt");
-			print LSOUT $long_term;
-			close (LSOUT);
-		}
-		else {print "Unable to find KEY MESSAGE 3 (LONG TERM)\n";}
 		
 
 
