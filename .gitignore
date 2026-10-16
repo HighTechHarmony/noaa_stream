@@ -13,5 +13,6 @@ nohup.out
 long_term.mp3
 near_term.mp3
 short_term.mp3
-
+*.mp3
+*.txt
 
