@@ -1,6 +1,7 @@
 import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import httpx
 import pytest
@@ -22,6 +23,9 @@ def make_settings(directory, **overrides):
         "forecast_dir": directory,
         "ollama_url": "http://ollama.test:11434",
         "ollama_model": "test-model",
+        "ollama_num_ctx": 8192,
+        "diagnostic_log_path": directory / "logs" / "summary_api.jsonl",
+        "diagnostic_log_enabled": True,
         "connect_timeout_seconds": 0.5,
         "read_timeout_seconds": 0.5,
         "generation_deadline_seconds": 1.0,
@@ -56,7 +60,7 @@ def test_each_forecast_section_is_available_and_within_limits(tmp_path):
         requests.append(json.loads(request.content))
         return ollama_response(["Rain is likely this afternoon."])
 
-    app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
+    app = create_app(make_settings(tmp_path, ollama_num_ctx=4096), httpx.MockTransport(handler))
     with TestClient(app) as client:
         for section in SECTIONS:
             response = client.get(f"/api/v1/forecasts/{section}/message_summary")
@@ -70,6 +74,73 @@ def test_each_forecast_section_is_available_and_within_limits(tmp_path):
             assert body["cached"] is False
     assert len(requests) == 4
     assert all(request["model"] == "test-model" for request in requests)
+    assert all(request["options"]["num_ctx"] == 4096 for request in requests)
+
+
+def test_ollama_prompt_and_unmodified_response_are_logged(tmp_path):
+    write_forecasts(tmp_path)
+    requests = []
+    raw_response = (
+        b'{ "message" : { "content" : "{\\"sentences\\":[\\"Rain is likely.\\"]}" }, "done": true }'
+    )
+
+    async def handler(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            content=raw_response,
+            headers={"content-type": "application/json"},
+        )
+
+    settings = make_settings(tmp_path)
+    app = create_app(settings, httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    records = [
+        json.loads(line)
+        for line in settings.diagnostic_log_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(records) == 1
+    assert records[0]["section"] == "synopsis"
+    assert records[0]["model"] == "test-model"
+    assert records[0]["prompt"] == requests[0]["messages"][0]["content"]
+    assert records[0]["response_status"] == 200
+    assert records[0]["response_body"] == raw_response.decode("utf-8")
+    assert records[0]["request_error"] is None
+
+
+def test_diagnostic_log_write_failure_does_not_fail_summary_request(tmp_path, caplog):
+    write_forecasts(tmp_path)
+
+    async def handler(request):
+        return ollama_response(["Rain is likely."])
+
+    settings = make_settings(tmp_path, diagnostic_log_path=tmp_path)
+    app = create_app(settings, httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    assert response.json()["sentences"] == ["Rain is likely."]
+    assert "Unable to write summary diagnostic log" in caplog.text
+
+
+def test_diagnostic_logging_can_be_disabled(tmp_path):
+    write_forecasts(tmp_path)
+
+    async def handler(request):
+        return ollama_response(["Rain is likely."])
+
+    settings = make_settings(tmp_path, diagnostic_log_enabled=False)
+    app = create_app(settings, httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    assert response.json()["sentences"] == ["Rain is likely."]
+    assert not settings.diagnostic_log_path.exists()
 
 
 def test_raw_forecast_endpoints_return_exact_plain_text_without_ollama(tmp_path):
@@ -128,12 +199,14 @@ def test_empty_and_invalid_encoding_sources_are_rejected(tmp_path):
         assert client.get("/api/v1/forecasts/synopsis/message_summary").json()["detail"]["code"] == "source_invalid_encoding"
 
 
-def test_summary_validation_accepts_exactly_133_and_rejects_134_chars():
+def test_summary_normalization_preserves_133_and_truncates_longer_sentences():
     sentences, count = _normalize_and_validate(json.dumps({"sentences": ["A" * 132 + "."]}))
     assert len(sentences[0]) == 133
     assert count == 1
-    with pytest.raises(InvalidSummary, match="133"):
-        _normalize_and_validate(json.dumps({"sentences": ["A" * 133 + "."]}))
+    sentences, count = _normalize_and_validate(json.dumps({"sentences": ["A" * 133 + "."]}))
+    assert sentences == ["A" * 130 + "..."]
+    assert len(sentences[0]) == 133
+    assert count == 1
 
 
 def test_four_sentences_can_each_use_the_full_133_character_limit():
@@ -167,48 +240,72 @@ def test_summary_validation_keeps_sentences_even_when_joined_text_exceeds_133_ch
 @pytest.mark.parametrize(
     "content",
     [
-        json.dumps({"sentences": ["One.", "Two.", "Three.", "Four.", "Five."]}),
-        json.dumps({"sentences": ["One. Two. Three. Four. Five."]}),
-        json.dumps({"sentences": ["- A list item."]}),
-        json.dumps({"sentences": ["Non-ASCII: café."]}),
         "not json",
-        json.dumps({"sentences": ["No terminal punctuation"]}),
+        json.dumps({"summary": "Missing sentences array"}),
+        json.dumps({"sentences": ["", None]}),
     ],
 )
-def test_invalid_summaries_are_rejected(content):
+def test_summary_normalization_rejects_only_unusable_structure(content):
     with pytest.raises(InvalidSummary):
         _normalize_and_validate(content)
 
 
-def test_invalid_model_output_gets_one_correction_attempt(tmp_path):
+def test_summary_normalization_sanitizes_unicode_and_controls():
+    sentences, count = _normalize_and_validate(
+        json.dumps({"sentences": ["Café — Montréal 🌧\nRain later"]})
+    )
+    assert sentences == ["Cafe - Montreal Rain later"]
+    assert count == 1
+    assert sentences[0].isascii()
+    assert all(32 <= ord(character) <= 126 for character in sentences[0])
+
+
+def test_summary_normalization_does_not_require_or_change_terminal_punctuation():
+    sentences, count = _normalize_and_validate(
+        json.dumps({"sentences": ["Rain likely", "Windy later!"]})
+    )
+    assert sentences == ["Rain likely", "Windy later!"]
+    assert count == 2
+
+
+def test_summary_normalization_keeps_first_four_sentences():
+    sentences, count = _normalize_and_validate(
+        json.dumps({"sentences": ["One. two. three. four. five."]})
+    )
+    assert sentences == ["One.", "two.", "three.", "four."]
+    assert count == 4
+
+
+def test_noncompliant_model_output_is_sanitized_without_retry(tmp_path):
     write_forecasts(tmp_path)
     calls = []
 
     async def handler(request):
         calls.append(json.loads(request.content))
-        if len(calls) == 1:
-            return ollama_response(["X" * 134 + "."])
-        return ollama_response(["A safer forecast."])
+        return ollama_response(
+            ["Rain showers may continue near Montréal through the afternoon. " + "W" * 140]
+        )
 
     app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
     with TestClient(app) as client:
         result = client.get("/api/v1/forecasts/synopsis/message_summary")
     assert result.status_code == 200
-    assert result.json()["summary"] == "A safer forecast."
-    assert len(calls) == 2
-    assert "failed validation" in calls[1]["messages"][0]["content"]
-    assert "Previous draft text" in calls[1]["messages"][0]["content"]
+    body = result.json()
+    assert len(body["sentences"]) == 2
+    assert body["sentences"][0] == "Rain showers may continue near Montreal through the afternoon."
+    assert len(body["sentences"][1]) == 133
+    assert body["sentences"][1].endswith("...")
+    assert all(sentence.isascii() for sentence in body["sentences"])
+    assert len(calls) == 1
 
 
-def test_non_ascii_model_output_gets_corrected_before_returning_summary(tmp_path):
+def test_non_ascii_model_output_is_transliterated_before_returning_summary(tmp_path):
     write_forecasts(tmp_path)
     calls = []
 
     async def handler(request):
         calls.append(json.loads(request.content))
-        if len(calls) == 1:
-            return ollama_response(["Rain is likely near Montréal."])
-        return ollama_response(["Rain is likely near Montreal."])
+        return ollama_response(["Rain is likely near Montréal."])
 
     app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
     with TestClient(app) as client:
@@ -221,21 +318,89 @@ def test_non_ascii_model_output_gets_corrected_before_returning_summary(tmp_path
     assert len(body["sentences"][0]) <= 133
     assert body["sentences"][0].endswith((".", "!", "?"))
     assert body["sentence_count"] <= 4
-    assert len(calls) == 2
-    assert "printable ASCII characters only" in calls[1]["messages"][0]["content"]
+    assert len(calls) == 1
 
 
-def test_repeated_invalid_output_is_not_cached(tmp_path):
+def test_more_than_four_sentences_are_limited_without_retry(tmp_path):
     write_forecasts(tmp_path)
+    calls = []
 
     async def handler(request):
-        return ollama_response(["X" * 134 + "."])
+        calls.append(json.loads(request.content))
+        return ollama_response(["One. Two. Three. Four. Five."])
 
     app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
     with TestClient(app) as client:
         response = client.get("/api/v1/forecasts/synopsis/message_summary")
-    assert response.status_code == 502
-    assert response.json()["detail"]["code"] == "invalid_ollama_response"
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sentences"] == ["One.", "Two.", "Three.", "Four."]
+    assert body["sentence_count"] == 4
+    assert len(calls) == 1
+
+
+def test_persistent_excess_sentences_are_limited_to_first_four_in_one_call(tmp_path):
+    write_forecasts(tmp_path)
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return ollama_response(["One.", "Two.", "Three.", "Four.", "Five."])
+
+    app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    assert response.json()["sentence_count"] == 4
+    assert calls == 1
+
+
+def test_overlong_sentence_is_truncated_with_ascii_ellipsis_in_one_call(tmp_path):
+    write_forecasts(tmp_path)
+    calls = 0
+    sentence = (
+        "Rain showers may continue through the afternoon with locally heavy amounts and gusty "
+        "winds across the region until midnight while isolated showers remain possible."
+    )
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return ollama_response([sentence])
+
+    app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["sentence_count"] == 1
+    assert len(result["sentences"][0]) <= 133
+    assert result["sentences"][0].isascii()
+    assert len(result["sentences"][0]) == 133
+    assert result["sentences"][0].endswith("...")
+    assert calls == 1
+
+
+def test_repeated_invalid_output_is_not_cached(tmp_path):
+    write_forecasts(tmp_path)
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"message": {"content": "not json"}})
+
+    app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+        assert response.status_code == 502
+        assert response.json()["detail"]["code"] == "invalid_ollama_response"
+        assert client.get("/api/v1/forecasts/synopsis/message_summary").status_code == 502
+        assert calls == 2
 
 
 @pytest.mark.parametrize(
@@ -273,6 +438,16 @@ def test_ollama_failures_have_bounded_error_responses(tmp_path, error, status, c
         response = client.get("/api/v1/forecasts/synopsis/message_summary")
     assert response.status_code == status
     assert response.json()["detail"]["code"] == code
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "logs" / "summary_api.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    ]
+    assert len(records) == 1
+    assert records[0]["prompt"]
+    assert records[0]["response_body"] is None
+    assert error.__class__.__name__ in records[0]["request_error"]
 
 
 def test_slow_ollama_response_within_configured_deadline_is_accepted(tmp_path):
@@ -333,7 +508,23 @@ def test_settings_resolve_forecast_dir_relative_to_config(tmp_path):
         '[paths]\nforecast_dir = "forecasts"\n',
         encoding="utf-8",
     )
-    assert load_settings(config_path).forecast_dir == forecast_dir
+    settings = load_settings(config_path)
+    assert settings.forecast_dir == forecast_dir
+    assert settings.ollama_num_ctx == 8192
+    assert settings.diagnostic_log_path == (tmp_path / "logs" / "summary_api.jsonl").resolve()
+    assert settings.diagnostic_log_enabled is True
+
+
+def test_settings_load_configured_ollama_num_ctx(tmp_path):
+    forecast_dir = tmp_path / "forecasts"
+    forecast_dir.mkdir()
+    config_path = tmp_path / "service.toml"
+    config_path.write_text(
+        '[ollama]\nurl = "http://localhost:11434"\nmodel = "test"\nnum_ctx = 4096\n'
+        '[paths]\nforecast_dir = "forecasts"\n',
+        encoding="utf-8",
+    )
+    assert load_settings(config_path).ollama_num_ctx == 4096
 
 
 def test_settings_reject_invalid_ollama_url(tmp_path):

@@ -4,6 +4,7 @@ afd_url = "https://forecast.weather.gov/product.php?site=BTV&issuedby=BTV&produc
 [ollama]
 url = "http://ollama:11434/"
 model = "deepseek-r1:8b"
+num_ctx = 8192
 connect_timeout_seconds = 15
 read_timeout_seconds = 240
 generation_deadline_seconds = 300
@@ -13,6 +14,8 @@ host = "192.168.16.28"
 port = 8765
 max_concurrent_summaries = 2
 queue_timeout_seconds = 30
+diagnostic_log_path = "logs/summary_api.jsonl"
+diagnostic_log_enabled = true
 
 [paths]
 forecast_dir = "forecasts/text"

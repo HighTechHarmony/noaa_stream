@@ -14,6 +14,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=/home/scott/noaa_stream/logs
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

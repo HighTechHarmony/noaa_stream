@@ -151,7 +151,7 @@ python3 -m venv .venv-summary
 .venv-summary/bin/pip install -r requirements-summary.txt
 ```
 
-Set `[noaa].afd_url` to the AFD product URL in `config.toml`. Set the Ollama URL and a model already installed on that server there as well. The service never downloads a model. Relative `paths.forecast_dir` values are resolved relative to `config.toml`; the configured value is `forecasts/text`. The API address and port are also configured there.
+Set `[noaa].afd_url` to the AFD product URL in `config.toml`. Set the Ollama URL and a model already installed on that server there as well. The service never downloads a model. Set `[ollama].num_ctx` to configure the model context window (default: `8192`). Relative `paths.forecast_dir` and `api.diagnostic_log_path` values are resolved relative to `config.toml`; the diagnostic log defaults to `logs/summary_api.jsonl` under the service working directory. Set `api.diagnostic_log_enabled` to `true` or `false` to enable or disable request/response logging (default: `true`). The API address and port are also configured there.
 
 Run it in the foreground:
 
@@ -159,7 +159,7 @@ Run it in the foreground:
 .venv-summary/bin/python scripts/summary_api.py --config config.toml
 ```
 
-The default Ollama timeouts allow a sleeping host or wake-up proxy to respond: connection timeout 15 seconds, response timeout 240 seconds, and an overall generation deadline of 300 seconds. These can be raised in `config.toml` if wake-up and inference take longer. A cache hit for an unchanged forecast does not contact Ollama. A cache miss holds the requesting HTTP connection open while generation runs; clients and any reverse proxy must allow that duration. Network failures are not retried. Invalid model output gets one correction attempt within the same deadline.
+The default Ollama timeouts allow a sleeping host or wake-up proxy to respond: connection timeout 15 seconds, response timeout 240 seconds, and an overall generation deadline of 300 seconds. These can be raised in `config.toml` if wake-up and inference take longer. A cache hit for an unchanged forecast does not contact Ollama. A cache miss holds the requesting HTTP connection open while generation runs; clients and any reverse proxy must allow that duration. Network failures and invalid model output are not retried. When enabled, every Ollama call is recorded as one JSONL entry with its prompt and unmodified response body (or transport error) in the configured diagnostic log. Prompts include the forecast source; protect the log accordingly and arrange rotation/retention for long-running deployments. The systemd unit allows writes to `/home/scott/noaa_stream/logs`; update `ReadWritePaths` if the installation or configured log path is elsewhere. Failure to write the diagnostic log is reported to the service journal and does not fail the API request.
 
 Endpoints:
 
@@ -184,7 +184,7 @@ curl http://192.168.16.28:8765/api/v1/forecasts/near_term
 curl http://192.168.16.28:8765/api/v1/forecasts/near_term/message_summary
 ```
 
-The JSON `sentences` field from `message_summary` is an array of printable ASCII sentences for separate MeshCore messages. Each sentence is at most 133 characters including punctuation, with at most four sentences (up to 532 characters across the sentence elements). Use this array when sending messages separately. The `summary` field remains as the sentences joined by spaces for clients that need one text value; `character_count` is the sum of the sentence element lengths. JSON metadata is not part of the sentence content. Invalid model output gets one correction attempt and is rejected rather than truncated if it still fails validation. Forecast summaries are not independently fact-checked; verify operationally important details against the NOAA source.
+The JSON `sentences` field from `message_summary` is an array of printable ASCII sentences for separate MeshCore messages. Each sentence is at most 133 characters, with at most four sentences (up to 532 characters across the sentence elements). Use this array when sending messages separately. The `summary` field remains as the sentences joined by spaces for clients that need one text value; `character_count` is the sum of the sentence element lengths. JSON metadata is not part of the sentence content. The API makes one model request, transliterates Unicode text to ASCII where possible and replaces unsupported characters with spaces, retains only the first four sentences, and truncates longer sentences to 130 characters followed by `...`. It asks the model to end sentences with punctuation but does not validate or change punctuation. Malformed JSON or output without usable sentence text is rejected. Forecast summaries are not independently fact-checked; verify operationally important details against the NOAA source.
 
 The API caches valid output in memory while a section's source contents remain unchanged. Restarting the service clears that cache. It reads one section per request; the existing scraper writes files in place, so source stability checks are best-effort and do not make a four-file product update atomic. Source timestamps report filesystem modification time, not a freshness guarantee. Health checks report API/config process liveness and do not require Ollama to be awake.
 
