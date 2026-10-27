@@ -200,6 +200,31 @@ def test_invalid_model_output_gets_one_correction_attempt(tmp_path):
     assert "Previous draft text" in calls[1]["messages"][0]["content"]
 
 
+def test_non_ascii_model_output_gets_corrected_before_returning_summary(tmp_path):
+    write_forecasts(tmp_path)
+    calls = []
+
+    async def handler(request):
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return ollama_response(["Rain is likely near Montréal."])
+        return ollama_response(["Rain is likely near Montreal."])
+
+    app = create_app(make_settings(tmp_path), httpx.MockTransport(handler))
+    with TestClient(app) as client:
+        response = client.get("/api/v1/forecasts/synopsis/message_summary")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sentences"] == ["Rain is likely near Montreal."]
+    assert body["sentences"][0].isascii()
+    assert len(body["sentences"][0]) <= 133
+    assert body["sentences"][0].endswith((".", "!", "?"))
+    assert body["sentence_count"] <= 4
+    assert len(calls) == 2
+    assert "printable ASCII characters only" in calls[1]["messages"][0]["content"]
+
+
 def test_repeated_invalid_output_is_not_cached(tmp_path):
     write_forecasts(tmp_path)
 

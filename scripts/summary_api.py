@@ -30,7 +30,7 @@ except ModuleNotFoundError:  # Python 3.10
 SECTIONS = ("synopsis", "near_term", "short_term", "long_term")
 MAX_SENTENCE_CHARS = 133
 MAX_SUMMARY_SENTENCES = 4
-PROMPT_VERSION = "2026-10-16-2"
+PROMPT_VERSION = "2026-10-27-1"
 OLLAMA_SCHEMA = {
     "type": "object",
     "properties": {
@@ -257,8 +257,9 @@ def _prompt(
     if correction:
         guidance += (
             f" The previous draft failed validation ({correction}). Rewrite it as 1 to 4 concise "
-            "sentences, each at most 133 characters, preserving the most important forecast "
-            "information. Return the required JSON only."
+            "sentences using printable ASCII characters only, each at most 133 characters and "
+            "ending with valid punctuation. Preserve the most important forecast information. "
+            "Return the required JSON only."
         )
         if previous_draft:
             guidance += f" Previous draft text: <draft>{previous_draft}</draft>"
